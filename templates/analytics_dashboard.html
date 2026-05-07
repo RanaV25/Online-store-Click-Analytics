@@ -1,0 +1,187 @@
+{% extends 'base.html' %}
+{% block title %}Analytics - ShopPulse{% endblock %}
+
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h3 class="mb-1">Internal Analytics</h3>
+    <p class="text-muted small mb-0">
+      Demo dashboard for clickstream, cart and order-intent activity.
+      <strong>Protect this route before production.</strong>
+    </p>
+  </div>
+  <button class="btn btn-sm btn-analytics" id="exportCsvBtn">
+    <i class="bi bi-cloud-download"></i> Export CSV
+  </button>
+</div>
+
+<div class="row g-3 mb-4" id="kpiRow"></div>
+
+<div class="row g-3 mb-4">
+  <div class="col-lg-6">
+    <div class="bg-white border rounded-3 p-3">
+      <h6>Conversion funnel</h6>
+      <canvas id="funnelChart" height="180"></canvas>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="bg-white border rounded-3 p-3">
+      <h6>Events by type</h6>
+      <canvas id="eventTypeChart" height="180"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-lg-7">
+    <div class="bg-white border rounded-3 p-3">
+      <h6>Events over the last 24 hours</h6>
+      <canvas id="timeChart" height="160"></canvas>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="bg-white border rounded-3 p-3">
+      <h6>Top viewed products</h6>
+      <canvas id="topViewedChart" height="160"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="bg-white border rounded-3 p-3">
+      <h6>Top added to cart</h6>
+      <table class="table table-sm table-sm-strict mb-0" id="topAddedTable"><thead><tr><th>Product</th><th class="text-end">Adds</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="bg-white border rounded-3 p-3">
+      <h6>Top searched terms</h6>
+      <table class="table table-sm table-sm-strict mb-0" id="topSearchedTable"><thead><tr><th>Query</th><th class="text-end">Count</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="bg-white border rounded-3 p-3">
+      <h6>Recent order intents</h6>
+      <table class="table table-sm table-sm-strict mb-0" id="recentOrdersTable">
+        <thead><tr><th>Code</th><th>Customer</th><th class="text-end">Total</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="bg-white border rounded-3 p-3 mt-3">
+  <h6>Recent click events</h6>
+  <div class="table-responsive">
+    <table class="table table-sm table-sm-strict mb-0" id="recentEventsTable">
+      <thead><tr><th>When</th><th>Event</th><th>Session</th><th>Product</th><th>Page</th><th>Device</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function fetchJSON(url) { const r = await fetch(url); return r.json(); }
+
+  function kpiCard(label, value) {
+    return `<div class="col-6 col-md-3 col-lg-2">
+              <div class="kpi-card">
+                <div class="label">${label}</div>
+                <div class="value">${value.toLocaleString()}</div>
+              </div>
+            </div>`;
+  }
+
+  async function loadAll() {
+    const [summary, funnel, top, recent] = await Promise.all([
+      fetchJSON('/api/analytics/summary'),
+      fetchJSON('/api/analytics/funnel'),
+      fetchJSON('/api/analytics/top-products'),
+      fetchJSON('/api/analytics/recent-events?n=25'),
+    ]);
+
+    document.getElementById('kpiRow').innerHTML = [
+      kpiCard('Page views', summary.page_views),
+      kpiCard('Product views', summary.product_views),
+      kpiCard('Add to cart', summary.add_to_cart),
+      kpiCard('Checkout started', summary.checkout_started),
+      kpiCard('WA order clicks', summary.whatsapp_order_clicks),
+      kpiCard('Total events', summary.total_events),
+    ].join('');
+
+    new Chart(document.getElementById('funnelChart'), {
+      type: 'bar',
+      data: {
+        labels: funnel.map(s => s.step),
+        datasets: [{ label: 'Count', data: funnel.map(s => s.count), backgroundColor: '#2563eb' }]
+      },
+      options: { indexAxis: 'y', plugins: { legend: { display: false } } }
+    });
+
+    new Chart(document.getElementById('eventTypeChart'), {
+      type: 'bar',
+      data: {
+        labels: recent.event_types.map(r => r.event_type),
+        datasets: [{ label: 'Count', data: recent.event_types.map(r => r.count), backgroundColor: '#0f172a' }]
+      },
+      options: { plugins: { legend: { display: false } }, scales: { x: { ticks: { autoSkip: false, maxRotation: 60, minRotation: 30 } } } }
+    });
+
+    new Chart(document.getElementById('timeChart'), {
+      type: 'line',
+      data: {
+        labels: recent.timeseries.map(t => t.hour),
+        datasets: [{ label: 'Events', data: recent.timeseries.map(t => t.count),
+                     borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,.15)', fill: true, tension: .3 }]
+      },
+      options: { plugins: { legend: { display: false } } }
+    });
+
+    new Chart(document.getElementById('topViewedChart'), {
+      type: 'bar',
+      data: {
+        labels: top.top_viewed.map(p => p.name),
+        datasets: [{ label: 'Views', data: top.top_viewed.map(p => p.count), backgroundColor: '#2563eb' }]
+      },
+      options: { indexAxis: 'y', plugins: { legend: { display: false } } }
+    });
+
+    document.querySelector('#topAddedTable tbody').innerHTML = (top.top_added_to_cart.length
+      ? top.top_added_to_cart.map(r => `<tr><td>${r.name}</td><td class="text-end">${r.count}</td></tr>`).join('')
+      : '<tr><td colspan="2" class="text-muted">No data yet</td></tr>');
+    document.querySelector('#topSearchedTable tbody').innerHTML = (top.top_searched.length
+      ? top.top_searched.map(r => `<tr><td>${r.query}</td><td class="text-end">${r.count}</td></tr>`).join('')
+      : '<tr><td colspan="2" class="text-muted">No data yet</td></tr>');
+
+    document.querySelector('#recentOrdersTable tbody').innerHTML = (recent.recent_orders.length
+      ? recent.recent_orders.map(o => `<tr><td>${o.order_code}</td><td>${o.customer_name}</td><td class="text-end">₹${Math.round(o.total_amount)}</td></tr>`).join('')
+      : '<tr><td colspan="3" class="text-muted">No orders yet</td></tr>');
+
+    document.querySelector('#recentEventsTable tbody').innerHTML = (recent.recent_events.length
+      ? recent.recent_events.map(e => `<tr>
+          <td class="small">${(e.created_at || '').replace('T',' ').slice(0,19)}</td>
+          <td><span class="badge text-bg-light">${e.event_type}</span></td>
+          <td class="small">${(e.session_id || '').slice(0,8)}</td>
+          <td class="small">${e.product_id || ''}</td>
+          <td class="small">${e.page_url || ''}</td>
+          <td class="small">${e.device_type || ''}</td>
+        </tr>`).join('')
+      : '<tr><td colspan="6" class="text-muted">No events yet</td></tr>');
+  }
+
+  document.getElementById('exportCsvBtn').addEventListener('click', async () => {
+    const r = await fetch('/api/export/csv', { method: 'POST' });
+    const data = await r.json();
+    alert(data.ok ? `Exported to: ${data.path}` : 'Export failed.');
+  });
+
+  loadAll();
+</script>
+{% endblock %}

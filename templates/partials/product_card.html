@@ -1,0 +1,43 @@
+<div class="card-product d-flex flex-column">
+  <a href="{{ url_for('product_detail', slug=product.slug) }}"
+     class="text-decoration-none text-reset"
+     data-track-product-click
+     data-product-id="{{ product.id }}"
+     data-product-sku="{{ product.sku }}"
+     data-product-category="{{ product.category }}">
+    <img src="{{ product.image_url }}" alt="{{ product.name }}" class="product-img">
+  </a>
+  <div class="p-3 d-flex flex-column flex-grow-1">
+    <div class="small text-muted mb-1">{{ product.category }}</div>
+    <a class="text-reset text-decoration-none mb-2" href="{{ url_for('product_detail', slug=product.slug) }}">
+      <div class="fw-semibold">{{ product.name }}</div>
+    </a>
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <span class="price">₹{{ product.price | int }}</span>
+      {% if product.compare_at_price %}
+        <span class="compare">₹{{ product.compare_at_price | int }}</span>
+      {% endif %}
+      {% if product.discount_percent %}
+        <span class="discount-pill">-{{ product.discount_percent }}%</span>
+      {% endif %}
+    </div>
+    <div class="small text-muted mb-3">
+      <i class="bi bi-star-fill text-warning"></i> {{ "%.1f"|format(product.rating or 0) }}
+      &middot; {{ product.review_count }} reviews
+    </div>
+    <div class="mt-auto d-flex gap-2">
+      <a href="{{ url_for('product_detail', slug=product.slug) }}" class="btn btn-sm btn-outline-dark flex-grow-1">View</a>
+      <button type="button" class="btn btn-sm btn-wa flex-grow-1"
+              data-add-to-cart
+              data-product-id="{{ product.id }}"
+              data-product-sku="{{ product.sku }}"
+              data-product-name="{{ product.name }}"
+              data-product-slug="{{ product.slug }}"
+              data-product-price="{{ product.price }}"
+              data-product-image="{{ product.image_url }}"
+              data-product-category="{{ product.category }}">
+        <i class="bi bi-cart-plus"></i> Add
+      </button>
+    </div>
+  </div>
+</div>
