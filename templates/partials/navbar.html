@@ -1,0 +1,27 @@
+<nav class="navbar navbar-expand-lg bg-white border-bottom sticky-top">
+  <div class="container">
+    <a class="navbar-brand" href="{{ url_for('index') }}">
+      <i class="bi bi-bag-heart-fill text-primary"></i> ShopPulse
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+            data-bs-target="#sp-nav" aria-controls="sp-nav" aria-expanded="false">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="sp-nav">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">Home</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('products') }}">All Products</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('analytics_dashboard') }}">Analytics</a></li>
+      </ul>
+      <form class="d-flex me-3" action="{{ url_for('products') }}" method="get" id="navSearchForm">
+        <input class="form-control form-control-sm me-2" type="search" name="q"
+               placeholder="Search products" aria-label="Search">
+        <button class="btn btn-sm btn-outline-dark" type="submit"><i class="bi bi-search"></i></button>
+      </form>
+      <a class="btn btn-sm btn-outline-dark position-relative" href="{{ url_for('cart') }}">
+        <i class="bi bi-cart3"></i> Cart
+        <span id="cartBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display:none;">0</span>
+      </a>
+    </div>
+  </div>
+</nav>

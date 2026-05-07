@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block title %}Your Cart - ShopPulse{% endblock %}
+
+{% block content %}
+<h3 class="mb-3">Your Cart</h3>
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div id="cartRoot" class="bg-white border rounded-3 p-3"></div>
+    <div class="d-flex justify-content-between mt-3">
+      <a href="{{ url_for('products') }}" class="btn btn-outline-dark">
+        <i class="bi bi-arrow-left"></i> Continue shopping
+      </a>
+      <button class="btn btn-outline-danger" id="clearCartBtn">
+        <i class="bi bi-trash"></i> Clear cart
+      </button>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="bg-white border rounded-3 p-3">
+      <h6 class="mb-3">Order summary</h6>
+      <div id="cartSummary"></div>
+      <a href="{{ url_for('checkout') }}" class="btn btn-wa w-100 mt-3" id="checkoutBtn">
+        <i class="bi bi-whatsapp"></i> Proceed to checkout
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  if (window.SPAnalytics) {
+    SPAnalytics.trackEvent('cart_view', {
+      cart_value: SPCart.getCartTotal(),
+      cart_items_count: SPCart.getCartItemsCount()
+    });
+  }
+  document.getElementById('clearCartBtn')?.addEventListener('click', () => {
+    if (confirm('Clear your cart?')) SPCart.clearCart();
+  });
+  document.getElementById('checkoutBtn')?.addEventListener('click', (e) => {
+    if (SPCart.getCartItemsCount() === 0) {
+      e.preventDefault();
+      alert('Your cart is empty.');
+      return;
+    }
+    if (window.SPAnalytics) {
+      SPAnalytics.trackEvent('checkout_click', {
+        cart_value: SPCart.getCartTotal(),
+        cart_items_count: SPCart.getCartItemsCount()
+      });
+    }
+  });
+</script>
+{% endblock %}

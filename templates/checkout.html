@@ -1,0 +1,121 @@
+{% extends 'base.html' %}
+{% block title %}Checkout - ShopPulse{% endblock %}
+
+{% block content %}
+<h3 class="mb-3">Checkout</h3>
+<p class="text-muted small">No payment is taken here. We'll generate a prefilled WhatsApp message for you to confirm the order.</p>
+<div class="row g-4">
+  <div class="col-lg-7">
+    <form id="checkoutForm" class="bg-white border rounded-3 p-3 needs-validation" novalidate>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Full Name *</label>
+          <input type="text" class="form-control" name="name" required minlength="2" maxlength="120">
+          <div class="invalid-feedback">Please enter your name.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Phone *</label>
+          <input type="tel" class="form-control" name="phone" required pattern="[0-9+\- ]{8,20}">
+          <div class="invalid-feedback">Please enter a valid phone number.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">City</label>
+          <input type="text" class="form-control" name="city" maxlength="80">
+        </div>
+        <div class="col-12">
+          <label class="form-label">Notes</label>
+          <textarea class="form-control" name="notes" rows="3" placeholder="Any preferences or address details"></textarea>
+        </div>
+      </div>
+      <div class="mt-4 d-grid">
+        <button type="submit" class="btn btn-wa btn-lg" id="submitOrderBtn">
+          <i class="bi bi-whatsapp"></i> Order on WhatsApp
+        </button>
+      </div>
+      <p class="small text-muted mt-2 mb-0">
+        We'll open WhatsApp with a pre-filled order message. Just hit send to confirm.
+      </p>
+    </form>
+  </div>
+  <div class="col-lg-5">
+    <div class="bg-white border rounded-3 p-3">
+      <h6 class="mb-3">Order summary</h6>
+      <div id="cartSummary"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  if (window.SPAnalytics) {
+    SPAnalytics.trackEvent('checkout_view', {
+      cart_value: SPCart.getCartTotal(),
+      cart_items_count: SPCart.getCartItemsCount()
+    });
+  }
+
+  let formStarted = false;
+  document.querySelectorAll('#checkoutForm input, #checkoutForm textarea').forEach(el => {
+    el.addEventListener('focus', () => {
+      if (formStarted) return;
+      formStarted = true;
+      if (window.SPAnalytics) SPAnalytics.trackEvent('checkout_form_started', {});
+    });
+  });
+
+  document.getElementById('checkoutForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const form = e.target;
+    if (!form.checkValidity()) { form.classList.add('was-validated'); return; }
+
+    const cart = SPCart.getCart();
+    if (!cart.items.length) { alert('Your cart is empty.'); return; }
+
+    const fd = new FormData(form);
+    const customer = {
+      name: fd.get('name').trim(),
+      phone: fd.get('phone').trim(),
+      city: (fd.get('city') || '').trim(),
+      notes: (fd.get('notes') || '').trim()
+    };
+
+    if (window.SPAnalytics) SPAnalytics.trackEvent('checkout_form_submit', {
+      cart_value: SPCart.getCartTotal(),
+      cart_items_count: SPCart.getCartItemsCount()
+    });
+    if (window.SPAnalytics) SPAnalytics.trackEvent('checkout_started', {
+      cart_value: SPCart.getCartTotal(),
+      cart_items_count: SPCart.getCartItemsCount()
+    });
+
+    const btn = document.getElementById('submitOrderBtn');
+    btn.disabled = true; btn.textContent = 'Creating order…';
+
+    try {
+      const resp = await fetch('/api/create-order-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer, items: cart.items })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        alert(data.error || 'Could not create order. Please try again.');
+        btn.disabled = false; btn.innerHTML = '<i class="bi bi-whatsapp"></i> Order on WhatsApp';
+        return;
+      }
+      if (window.SPAnalytics) SPAnalytics.trackEvent('whatsapp_order_click', {
+        cart_value: SPCart.getCartTotal(),
+        cart_items_count: SPCart.getCartItemsCount(),
+        metadata: { order_code: data.order_code }
+      });
+      window.open(data.whatsapp_url, '_blank');
+      SPCart.clearCart();
+      window.location.href = data.redirect_url;
+    } catch (err) {
+      alert('Network error. Please try again.');
+      btn.disabled = false; btn.innerHTML = '<i class="bi bi-whatsapp"></i> Order on WhatsApp';
+    }
+  });
+</script>
+{% endblock %}

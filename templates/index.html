@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block title %}ShopPulse Store - Demo MLOps Storefront{% endblock %}
+
+{% block content %}
+<section class="hero text-center mb-5">
+  <div class="container">
+    <h1 class="display-5 mb-3">Shop smart. Order on WhatsApp.</h1>
+    <p class="lead mb-4">A demo store for real-time demand prediction and MLOps analytics.</p>
+    <form action="{{ url_for('products') }}" method="get" class="d-flex justify-content-center gap-2 flex-wrap">
+      <input type="search" name="q" class="form-control form-control-lg" style="max-width: 360px;"
+             placeholder="Search yoga mat, blender, snacks…" id="heroSearch">
+      <button type="submit" class="btn btn-lg btn-light" data-track="hero_cta_click" data-cta="hero_search">Search</button>
+      <a href="{{ url_for('products') }}" class="btn btn-lg btn-wa" data-track="hero_cta_click" data-cta="shop_now">
+        <i class="bi bi-bag"></i> Shop Now
+      </a>
+    </form>
+  </div>
+</section>
+
+<section class="mb-5">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">Browse Categories</h4>
+    <a href="{{ url_for('products') }}" class="small">View all products →</a>
+  </div>
+  <div class="row g-3">
+    {% for c in categories %}
+    <div class="col-6 col-md-3">
+      <a href="{{ url_for('category', slug=c.slug) }}" class="text-reset text-decoration-none"
+         data-track="category_click" data-category="{{ c.name }}">
+        <div class="category-tile">
+          <div class="icon mb-2"><i class="bi bi-grid-1x2-fill text-primary"></i></div>
+          <div class="fw-semibold">{{ c.name }}</div>
+          <div class="small text-muted">{{ c.description }}</div>
+        </div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+{% if featured_products %}
+<section class="mb-5">
+  <h4 class="mb-3">Featured Products</h4>
+  <div class="row g-3">
+    {% for product in featured_products %}
+      <div class="col-12 col-sm-6 col-md-4 col-lg-3"
+           data-track-impression
+           data-product-id="{{ product.id }}"
+           data-product-sku="{{ product.sku }}"
+           data-product-category="{{ product.category }}">
+        {% include 'partials/product_card.html' %}
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if trending_products %}
+<section class="mb-5">
+  <h4 class="mb-3">Trending Now</h4>
+  <div class="row g-3">
+    {% for product in trending_products %}
+      <div class="col-12 col-sm-6 col-md-4 col-lg-3"
+           data-track-impression
+           data-product-id="{{ product.id }}"
+           data-product-sku="{{ product.sku }}"
+           data-product-category="{{ product.category }}">
+        {% include 'partials/product_card.html' %}
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="section-soft p-4 rounded-3 mb-5">
+  <div class="row align-items-center">
+    <div class="col-md-8">
+      <h5 class="mb-2"><i class="bi bi-whatsapp text-success"></i> Order via WhatsApp</h5>
+      <p class="mb-0 small text-muted">
+        Add what you like to your cart. At checkout, we'll generate a prefilled WhatsApp message with your
+        order details. Just hit send — our team will confirm availability and finalise your order on chat.
+        No payment is taken on this site.
+      </p>
+    </div>
+    <div class="col-md-4 text-md-end mt-3 mt-md-0">
+      <a href="{{ url_for('products') }}" class="btn btn-wa"><i class="bi bi-cart"></i> Start Shopping</a>
+    </div>
+  </div>
+</section>
+{% endblock %}
