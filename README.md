@@ -34,7 +34,7 @@ git clone <your-fork-or-this-repo-url>
 cd Online-store-Click-Analytics
 
 # 2. Create and activate a virtualenv
-python -m venv venv
+python3.11 -m venv venv
 source venv/bin/activate          # macOS/Linux
 # venv\Scripts\activate           # Windows PowerShell
 

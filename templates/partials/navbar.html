@@ -12,6 +12,8 @@
         <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">Home</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('products') }}">All Products</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('analytics_dashboard') }}">Analytics</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('prediction_analytics') }}">Predictions</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_categories') }}">Admin</a></li>
       </ul>
       <form class="d-flex me-3" action="{{ url_for('products') }}" method="get" id="navSearchForm">
         <input class="form-control form-control-sm me-2" type="search" name="q"

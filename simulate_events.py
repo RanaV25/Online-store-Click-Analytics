@@ -48,6 +48,7 @@ def make_user():
     return {
         "user_id": str(uuid.uuid4()),
         "session_id": str(uuid.uuid4()),
+        "cart_id": str(uuid.uuid4()),
         "city": random.choice(CITIES),
         "device_type": random.choice(DEVICES),
         "browser": random.choice(BROWSERS),
@@ -59,6 +60,7 @@ def base_event(user, event_type, page_url, **extra):
     payload = {
         "event_id": str(uuid.uuid4()),
         "event_type": event_type,
+        "cart_id": user.get("cart_id"),
         "session_id": user["session_id"],
         "user_id": user["user_id"],
         "page_url": page_url,
@@ -117,7 +119,9 @@ def run_session(base_url, products, total_target):
             cart_items_count += qty
             cart_value += p["price"] * qty
             post(base_url, "/api/cart-event", {
+                "cart_id": user["cart_id"],
                 "session_id": user["session_id"],
+                "user_id": user["user_id"],
                 "event_type": "add_to_cart",
                 "product_id": p["id"],
                 "product_name": p["name"],
@@ -143,10 +147,24 @@ def run_session(base_url, products, total_target):
         post(base_url, "/api/track-event", base_event(
             user, "checkout_started", "/checkout",
             cart_value=cart_value, cart_items_count=cart_items_count))
+        post(base_url, "/api/cart-event", {
+            "cart_id": user["cart_id"],
+            "session_id": user["session_id"],
+            "user_id": user["user_id"],
+            "event_type": "checkout_started",
+            "cart_total": cart_value,
+        })
         if random.random() < 0.6:
             post(base_url, "/api/track-event", base_event(
                 user, "whatsapp_order_click", "/checkout",
                 cart_value=cart_value, cart_items_count=cart_items_count))
+            post(base_url, "/api/cart-event", {
+                "cart_id": user["cart_id"],
+                "session_id": user["session_id"],
+                "user_id": user["user_id"],
+                "event_type": "whatsapp_order_click",
+                "cart_total": cart_value,
+            })
 
     return cart_items_count
 

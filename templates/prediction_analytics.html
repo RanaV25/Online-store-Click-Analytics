@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}Prediction Analytics - ShopPulse{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h3 class="mb-1">Prediction Analytics</h3>
+    <p class="text-muted small mb-0">
+      Category model predictions generated whenever a product detail view is tracked.
+      <strong>Protect this route before production.</strong>
+    </p>
+  </div>
+  <span class="badge text-bg-light">{{ predictions|length }} recent prediction(s)</span>
+</div>
+
+<div class="bg-white border rounded-3 p-3">
+  <div class="table-responsive">
+    <table class="table table-sm table-sm-strict align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Event Time</th>
+          <th>Event</th>
+          <th>Product</th>
+          <th>Category</th>
+          <th class="text-end">Cart Prob.</th>
+          <th class="text-end">Order Prob.</th>
+          <th class="text-end">Views</th>
+          <th class="text-end">Adds</th>
+          <th class="text-end">Checkout</th>
+          <th class="text-end">WA Clicks</th>
+          <th>Model</th>
+          <th>Version</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if predictions %}
+          {% for row in predictions %}
+            <tr>
+              <td class="small">{{ (row.event_time or '')[:19].replace('T', ' ') }}</td>
+              <td><span class="badge text-bg-light">{{ row.event_type }}</span></td>
+              <td>
+                <div class="fw-semibold">{{ row.product_name }}</div>
+                <div class="text-muted small">#{{ row.product_id }}</div>
+              </td>
+              <td>{{ row.category_name }}</td>
+              <td class="text-end">{{ "%.2f"|format((row.predicted_cart_probability or 0) * 100) }}%</td>
+              <td class="text-end">{{ "%.2f"|format((row.predicted_order_probability or 0) * 100) }}%</td>
+              <td class="text-end">{{ row.product_views }}</td>
+              <td class="text-end">{{ row.add_to_cart_events }}</td>
+              <td class="text-end">{{ row.checkout_started_count }}</td>
+              <td class="text-end">{{ row.whatsapp_order_count }}</td>
+              <td>
+                <div>{{ row.model_name }}</div>
+                <div class="text-muted small">{{ row.model_training_rows }} rows</div>
+              </td>
+              <td class="small">{{ row.model_version or 'legacy' }}</td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="12" class="text-muted">
+              No predictions yet. Open any product detail page to emit a product_view event.
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

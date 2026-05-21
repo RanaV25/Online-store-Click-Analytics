@@ -50,6 +50,7 @@
 <script>
   if (window.SPAnalytics) {
     SPAnalytics.trackEvent('checkout_view', {
+      cart_id: SPCart.getCartId(),
       cart_value: SPCart.getCartTotal(),
       cart_items_count: SPCart.getCartItemsCount()
     });
@@ -60,7 +61,9 @@
     el.addEventListener('focus', () => {
       if (formStarted) return;
       formStarted = true;
-      if (window.SPAnalytics) SPAnalytics.trackEvent('checkout_form_started', {});
+      if (window.SPAnalytics) SPAnalytics.trackEvent('checkout_form_started', {
+        cart_id: SPCart.getCartId()
+      });
     });
   });
 
@@ -80,13 +83,15 @@
       notes: (fd.get('notes') || '').trim()
     };
 
+    SPCart.postCartEvent('checkout_started', null, 0, { cart });
     if (window.SPAnalytics) SPAnalytics.trackEvent('checkout_form_submit', {
+      cart_id: cart.cart_id,
       cart_value: SPCart.getCartTotal(),
       cart_items_count: SPCart.getCartItemsCount()
     });
-    if (window.SPAnalytics) SPAnalytics.trackEvent('checkout_started', {
-      cart_value: SPCart.getCartTotal(),
-      cart_items_count: SPCart.getCartItemsCount()
+    SPCart.postCartEvent('customer_details_submitted', null, 0, {
+      cart,
+      metadata: { city: customer.city ? true : false, notes: customer.notes ? true : false }
     });
 
     const btn = document.getElementById('submitOrderBtn');
@@ -96,7 +101,13 @@
       const resp = await fetch('/api/create-order-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customer, items: cart.items })
+        body: JSON.stringify({
+          cart_id: cart.cart_id,
+          session_id: SPAnalytics.getSessionId(),
+          user_id: SPAnalytics.getAnonymousUserId(),
+          customer,
+          items: cart.items
+        })
       });
       const data = await resp.json();
       if (!resp.ok || !data.ok) {
@@ -104,13 +115,12 @@
         btn.disabled = false; btn.innerHTML = '<i class="bi bi-whatsapp"></i> Order on WhatsApp';
         return;
       }
-      if (window.SPAnalytics) SPAnalytics.trackEvent('whatsapp_order_click', {
-        cart_value: SPCart.getCartTotal(),
-        cart_items_count: SPCart.getCartItemsCount(),
+      SPCart.postCartEvent('whatsapp_order_click', null, 0, {
+        cart,
         metadata: { order_code: data.order_code }
       });
       window.open(data.whatsapp_url, '_blank');
-      SPCart.clearCart();
+      SPCart.completeCart(data.order_code);
       window.location.href = data.redirect_url;
     } catch (err) {
       alert('Network error. Please try again.');

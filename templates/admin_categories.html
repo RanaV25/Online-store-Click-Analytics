@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% block title %}Admin Categories - ShopPulse{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h3 class="mb-1">Admin Categories</h3>
+    <p class="text-muted small mb-0">Internal demo page. Creating a category starts hourly retraining for 3 days.</p>
+  </div>
+  <a href="{{ url_for('admin_models') }}" class="btn btn-sm btn-outline-dark">Model Runs</a>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="bg-white border rounded-3 p-3">
+      <h6 class="mb-3">Create Category</h6>
+      <form method="post">
+        <div class="mb-2">
+          <label class="form-label">Name</label>
+          <input class="form-control" name="name" required maxlength="80">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Slug</label>
+          <input class="form-control" name="slug" maxlength="100" placeholder="optional">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Description</label>
+          <textarea class="form-control" name="description" rows="3"></textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Image URL</label>
+          <input class="form-control" name="image_url" maxlength="400" placeholder="optional">
+        </div>
+        <button class="btn btn-dark">Create Category</button>
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="bg-white border rounded-3 p-3 mb-3">
+      <h6>Categories</h6>
+      <table class="table table-sm table-sm-strict mb-0">
+        <thead><tr><th>Name</th><th>Slug</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for c in categories %}
+          <tr><td>{{ c.name }}</td><td>{{ c.slug }}</td><td>{{ 'active' if c.is_active else 'inactive' }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="bg-white border rounded-3 p-3">
+      <h6>Recent Retraining Triggers</h6>
+      <table class="table table-sm table-sm-strict mb-0">
+        <thead><tr><th>Category</th><th>Status</th><th>Active Until</th></tr></thead>
+        <tbody>
+          {% for t in triggers %}
+          <tr>
+            <td>{{ t.category_name }}</td>
+            <td>{{ t.status }}</td>
+            <td class="small">{{ t.active_until }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="text-muted">No triggers yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

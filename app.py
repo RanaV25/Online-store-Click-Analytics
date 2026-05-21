@@ -10,7 +10,9 @@ ML/MLOps note:
 import csv
 import json
 import os
+import re
 import urllib.parse
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -18,11 +20,19 @@ from flask import (
     Flask, abort, jsonify, render_template, request, send_from_directory,
 )
 from sqlalchemy import desc, func
+from sqlalchemy import inspect, text
 
 from config import Config
 from models import (
-    CartEvent, Category, ClickEvent, OrderIntent, Product, SearchQuery, db,
+    Cart, CartEvent, CartItem, Category, ClickEvent, OrderIntent, Product,
+    PredictionJob, RetrainingTrigger, SearchQuery, TrainingRun, db,
 )
+from prediction_store import (
+    build_prediction_for_product_view, get_recent_predictions,
+    init_prediction_db, save_prediction_row,
+)
+from queue_client import enqueue_prediction_job
+from sync_latest_model import sync_from_run
 
 
 def create_app(config_class=Config):
@@ -37,6 +47,8 @@ def create_app(config_class=Config):
     db.init_app(app)
     with app.app_context():
         db.create_all()
+        _ensure_sqlite_schema()
+    init_prediction_db()
 
     register_routes(app)
     return app
@@ -55,6 +67,42 @@ def _request_meta():
     }
 
 
+def _ensure_sqlite_schema():
+    """Add columns introduced after the demo DB was first created.
+
+    `db.create_all()` creates new tables but does not alter existing SQLite
+    tables, so local demo databases need a tiny compatibility migration.
+    """
+    if db.engine.dialect.name != "sqlite":
+        return
+
+    inspector = inspect(db.engine)
+    table_columns = {
+        table: {col["name"] for col in inspector.get_columns(table)}
+        for table in inspector.get_table_names()
+    }
+    migrations = {
+        "click_events": {
+            "cart_id": "ALTER TABLE click_events ADD COLUMN cart_id VARCHAR(64)",
+        },
+        "cart_events": {
+            "cart_id": "ALTER TABLE cart_events ADD COLUMN cart_id VARCHAR(64)",
+            "user_id": "ALTER TABLE cart_events ADD COLUMN user_id VARCHAR(64)",
+            "metadata_json": "ALTER TABLE cart_events ADD COLUMN metadata_json TEXT",
+        },
+        "order_intents": {
+            "cart_id": "ALTER TABLE order_intents ADD COLUMN cart_id VARCHAR(64)",
+            "session_id": "ALTER TABLE order_intents ADD COLUMN session_id VARCHAR(64)",
+        },
+    }
+    for table, columns in migrations.items():
+        existing = table_columns.get(table, set())
+        for column, sql in columns.items():
+            if column not in existing:
+                db.session.execute(text(sql))
+    db.session.commit()
+
+
 def _next_order_code():
     today = datetime.utcnow().strftime("%Y%m%d")
     prefix = f"SP-{today}-"
@@ -70,6 +118,164 @@ def _next_order_code():
         except ValueError:
             n = 1
     return f"{prefix}{n:03d}"
+
+
+def _slugify(value):
+    value = value.lower().strip()
+    value = re.sub(r"[^a-z0-9]+", "-", value)
+    return value.strip("-")
+
+
+def _create_retraining_trigger(category):
+    trigger = RetrainingTrigger(
+        trigger_type="new_category",
+        category_id=category.id,
+        category_name=category.name,
+        reason="New category created from admin page",
+        active_until=datetime.utcnow() + timedelta(days=3),
+        status="active",
+    )
+    db.session.add(trigger)
+    return trigger
+
+
+def _enqueue_product_view_prediction(payload):
+    if payload.get("event_type") != "product_view" or not payload.get("product_id"):
+        return
+    job_id = str(uuid.uuid4())
+    audit = PredictionJob(
+        job_id=job_id,
+        event_id=payload.get("event_id"),
+        product_id=payload.get("product_id"),
+        event_type=payload.get("event_type", "product_view"),
+        payload_json=json.dumps(payload),
+        status="queued",
+    )
+    db.session.add(audit)
+    db.session.commit()
+    try:
+        queued = enqueue_prediction_job({"job_id": job_id, **payload})
+        audit.job_id = queued["job_id"]
+        audit.payload_json = json.dumps(queued["payload"])
+        audit.updated_at = datetime.utcnow()
+        db.session.commit()
+    except Exception as exc:
+        audit.status = "queue_failed"
+        audit.error_message = str(exc)
+        audit.updated_at = datetime.utcnow()
+        db.session.commit()
+
+
+def _get_or_create_cart(cart_id, session_id=None, user_id=None):
+    if not cart_id:
+        return None
+    cart = Cart.query.filter_by(cart_id=cart_id).first()
+    if not cart:
+        cart = Cart(cart_id=cart_id, session_id=session_id, user_id=user_id)
+        db.session.add(cart)
+    elif cart.status in {"cleared", "converted"}:
+        # Late events can arrive out of order. Keep the historical cart record
+        # but do not reactivate carts that the client has already closed.
+        pass
+    if session_id and not cart.session_id:
+        cart.session_id = session_id
+    if user_id and not cart.user_id:
+        cart.user_id = user_id
+    return cart
+
+
+def _refresh_cart_totals(cart):
+    if not cart:
+        return
+    rows = CartItem.query.filter_by(cart_id=cart.cart_id, is_active=True).all()
+    cart.total_items = sum((r.quantity or 0) for r in rows)
+    cart.total_amount = sum((r.line_total or 0.0) for r in rows)
+    cart.updated_at = datetime.utcnow()
+
+
+def _upsert_cart_item(cart_id, product_id, quantity, product_name=None,
+                      unit_price=None, active=True):
+    if not cart_id or not product_id:
+        return
+    product = Product.query.get(product_id)
+    if not product and unit_price is None:
+        return
+    qty = max(1, int(quantity or 1))
+    price = float(unit_price if unit_price is not None else product.price)
+    item = CartItem.query.filter_by(cart_id=cart_id, product_id=product_id).first()
+    if not item:
+        item = CartItem(
+            cart_id=cart_id,
+            product_id=product_id,
+            added_at=datetime.utcnow(),
+        )
+        db.session.add(item)
+    item.product_name = product.name if product else product_name
+    item.product_sku = product.sku if product else None
+    item.category = product.category if product else None
+    item.subcategory = product.subcategory if product else None
+    item.quantity = qty
+    item.unit_price = price
+    item.line_total = price * qty
+    item.is_active = active
+    item.updated_at = datetime.utcnow()
+    if active:
+        item.removed_at = None
+    else:
+        item.removed_at = datetime.utcnow()
+
+
+def _apply_cart_event(cart, event_type, payload):
+    if not cart:
+        return
+    if cart.status in {"cleared", "converted"} and event_type not in {
+        "clear_cart", "cart_converted",
+    }:
+        return
+    now = datetime.utcnow()
+    product_id = payload.get("product_id")
+    if event_type in {"add_to_cart", "update_quantity"} and product_id:
+        _upsert_cart_item(
+            cart.cart_id,
+            product_id,
+            payload.get("quantity"),
+            product_name=payload.get("product_name"),
+            unit_price=payload.get("unit_price"),
+            active=True,
+        )
+        cart.status = "active"
+    elif event_type == "remove_from_cart" and product_id:
+        _upsert_cart_item(
+            cart.cart_id,
+            product_id,
+            payload.get("quantity"),
+            product_name=payload.get("product_name"),
+            unit_price=payload.get("unit_price"),
+            active=False,
+        )
+    elif event_type == "clear_cart":
+        CartItem.query.filter_by(cart_id=cart.cart_id, is_active=True).update({
+            "is_active": False,
+            "removed_at": now,
+            "updated_at": now,
+        })
+        cart.status = "cleared"
+        cart.cleared_at = now
+    elif event_type == "checkout_started":
+        cart.status = "checkout_started"
+        cart.checkout_started_at = now
+    elif event_type == "customer_details_submitted":
+        cart.status = "customer_details_submitted"
+        cart.customer_details_submitted_at = now
+    elif event_type == "whatsapp_order_click":
+        cart.status = "whatsapp_clicked"
+        cart.whatsapp_clicked_at = now
+    elif event_type == "cart_converted":
+        cart.status = "converted"
+        cart.converted_at = now
+        if payload.get("order_code"):
+            cart.converted_order_code = payload["order_code"]
+    _refresh_cart_totals(cart)
 
 
 def _build_whatsapp_message(order_code, customer, items, total_items, total_amount):
@@ -99,6 +305,24 @@ def _build_whatsapp_message(order_code, customer, items, total_items, total_amou
         lines.append("Notes:")
         lines.append(customer["notes"])
     return "\n".join(lines)
+
+
+def _score_product_view_event(payload):
+    """Best-effort model scoring for a freshly committed product_view event."""
+    if payload.get("event_type") != "product_view":
+        return
+    product_id = payload.get("product_id")
+    if not product_id:
+        return
+    product = Product.query.get(product_id)
+    if not product:
+        return
+    row = build_prediction_for_product_view(
+        product,
+        payload,
+        event_time=datetime.utcnow(),
+    )
+    save_prediction_row(row)
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +461,75 @@ def register_routes(app):
         # NOTE: protect this route in production (e.g. basic auth, IP allowlist).
         return render_template("analytics_dashboard.html")
 
+    @app.route("/prediction-analytics")
+    def prediction_analytics():
+        # NOTE: protect this route in production (e.g. basic auth, IP allowlist).
+        rows = get_recent_predictions(limit=200)
+        return render_template("prediction_analytics.html", predictions=rows)
+
+    @app.route("/admin/categories", methods=["GET", "POST"])
+    def admin_categories():
+        message = None
+        error = None
+        if request.method == "POST":
+            name = request.form.get("name", "").strip()
+            description = request.form.get("description", "").strip()
+            image_url = request.form.get("image_url", "").strip()
+            slug = _slugify(request.form.get("slug", "").strip() or name)
+            if not name or not slug:
+                error = "Category name is required."
+            elif Category.query.filter((Category.name == name) | (Category.slug == slug)).first():
+                error = "Category name or slug already exists."
+            else:
+                category = Category(
+                    name=name,
+                    slug=slug,
+                    description=description,
+                    image_url=image_url or f"https://picsum.photos/seed/{slug}/600/400",
+                    is_active=True,
+                )
+                db.session.add(category)
+                db.session.flush()
+                _create_retraining_trigger(category)
+                db.session.commit()
+                message = f"Created category '{name}' and activated retraining trigger."
+
+        categories = Category.query.order_by(Category.name.asc()).all()
+        triggers = RetrainingTrigger.query.order_by(RetrainingTrigger.id.desc()).limit(20).all()
+        return render_template(
+            "admin_categories.html",
+            categories=categories,
+            triggers=triggers,
+            message=message,
+            error=error,
+        )
+
+    @app.route("/admin/models")
+    def admin_models():
+        runs = TrainingRun.query.order_by(TrainingRun.id.desc()).limit(50).all()
+        run_dirs = sorted(
+            [p for p in app.config["MODEL_RUNS_DIR"].glob("*") if p.is_dir()],
+            reverse=True,
+        ) if app.config["MODEL_RUNS_DIR"].exists() else []
+        return render_template("admin_models.html", runs=runs, run_dirs=run_dirs, message=None, error=None)
+
+    @app.route("/admin/models/promote", methods=["POST"])
+    def admin_promote_model():
+        model_version = request.form.get("model_version", "").strip()
+        message = None
+        error = None
+        try:
+            result = sync_from_run(model_version=model_version or None, dry_run=False)
+            message = f"Promoted model from {result['source']}."
+        except Exception as exc:
+            error = str(exc)
+        runs = TrainingRun.query.order_by(TrainingRun.id.desc()).limit(50).all()
+        run_dirs = sorted(
+            [p for p in app.config["MODEL_RUNS_DIR"].glob("*") if p.is_dir()],
+            reverse=True,
+        ) if app.config["MODEL_RUNS_DIR"].exists() else []
+        return render_template("admin_models.html", runs=runs, run_dirs=run_dirs, message=message, error=error)
+
     # ---- Tracking API ----------------------------------------------------
 
     @app.route("/api/track-event", methods=["POST"])
@@ -248,6 +541,7 @@ def register_routes(app):
             extra = payload.get("metadata") or {}
             ev = ClickEvent(
                 event_id=payload.get("event_id"),
+                cart_id=payload.get("cart_id"),
                 session_id=payload.get("session_id"),
                 user_id=payload.get("user_id"),
                 event_type=payload.get("event_type", "unknown"),
@@ -280,6 +574,10 @@ def register_routes(app):
                 )
 
             db.session.commit()
+            try:
+                _enqueue_product_view_prediction(payload)
+            except Exception:
+                pass
             return ("", 204)
         except Exception:
             db.session.rollback()
@@ -289,16 +587,26 @@ def register_routes(app):
     def api_cart_event():
         try:
             payload = request.get_json(force=True, silent=True) or {}
+            extra = payload.get("metadata") or {}
             ev = CartEvent(
+                cart_id=payload.get("cart_id"),
                 session_id=payload.get("session_id"),
+                user_id=payload.get("user_id"),
                 event_type=payload.get("event_type", "unknown"),
                 product_id=payload.get("product_id"),
                 product_name=payload.get("product_name"),
                 quantity=payload.get("quantity"),
                 unit_price=payload.get("unit_price"),
                 cart_total=payload.get("cart_total"),
+                metadata_json=json.dumps(extra) if extra else None,
             )
             db.session.add(ev)
+            cart = _get_or_create_cart(
+                payload.get("cart_id"),
+                session_id=payload.get("session_id"),
+                user_id=payload.get("user_id"),
+            )
+            _apply_cart_event(cart, ev.event_type, payload)
             db.session.commit()
             return ("", 204)
         except Exception:
@@ -317,6 +625,9 @@ def register_routes(app):
         data = request.get_json(force=True, silent=True) or {}
         customer = data.get("customer") or {}
         cart_items = data.get("items") or []
+        cart_id = data.get("cart_id")
+        session_id = data.get("session_id")
+        user_id = data.get("user_id")
 
         if not customer.get("name") or not customer.get("phone"):
             return jsonify(ok=False, error="Name and phone are required."), 400
@@ -348,9 +659,30 @@ def register_routes(app):
         order_code = _next_order_code()
         msg = _build_whatsapp_message(order_code, customer, verified_items,
                                       total_items, total_amount)
+        cart = _get_or_create_cart(cart_id, session_id=session_id, user_id=user_id)
+        if cart:
+            CartItem.query.filter_by(cart_id=cart.cart_id, is_active=True).update({
+                "is_active": False,
+                "removed_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+            })
+            for line in verified_items:
+                _upsert_cart_item(
+                    cart.cart_id,
+                    line["product_id"],
+                    line["quantity"],
+                    product_name=line["name"],
+                    unit_price=line["unit_price"],
+                    active=True,
+                )
+            _apply_cart_event(cart, "customer_details_submitted", {})
+            _apply_cart_event(cart, "whatsapp_order_click", {})
+            _apply_cart_event(cart, "cart_converted", {"order_code": order_code})
 
         order = OrderIntent(
             order_code=order_code,
+            cart_id=cart_id,
+            session_id=session_id,
             customer_name=customer["name"],
             customer_phone=customer["phone"],
             customer_city=customer.get("city"),
@@ -573,7 +905,7 @@ def export_all_csv(app):
         dump(
             "click_events.csv",
             [
-                (e.id, e.event_id, e.session_id, e.user_id, e.event_type,
+                (e.id, e.event_id, e.cart_id, e.session_id, e.user_id, e.event_type,
                  e.page_url, e.product_id, e.product_sku, e.category,
                  e.search_query, e.filter_name, e.filter_value,
                  e.cart_value, e.cart_items_count, e.traffic_source,
@@ -581,7 +913,7 @@ def export_all_csv(app):
                  e.created_at)
                 for e in ClickEvent.query.all()
             ],
-            ["id", "event_id", "session_id", "user_id", "event_type",
+            ["id", "event_id", "cart_id", "session_id", "user_id", "event_type",
              "page_url", "product_id", "product_sku", "category",
              "search_query", "filter_name", "filter_value", "cart_value",
              "cart_items_count", "traffic_source", "device_type", "browser",
@@ -590,23 +922,53 @@ def export_all_csv(app):
         dump(
             "cart_events.csv",
             [
-                (e.id, e.session_id, e.event_type, e.product_id,
+                (e.id, e.cart_id, e.session_id, e.user_id, e.event_type, e.product_id,
                  e.product_name, e.quantity, e.unit_price, e.cart_total,
-                 e.created_at)
+                 e.metadata_json, e.created_at)
                 for e in CartEvent.query.all()
             ],
-            ["id", "session_id", "event_type", "product_id", "product_name",
-             "quantity", "unit_price", "cart_total", "created_at"],
+            ["id", "cart_id", "session_id", "user_id", "event_type", "product_id",
+             "product_name", "quantity", "unit_price", "cart_total",
+             "metadata_json", "created_at"],
+        )
+        dump(
+            "carts.csv",
+            [
+                (c.id, c.cart_id, c.session_id, c.user_id, c.status,
+                 c.total_items, c.total_amount, c.converted_order_code,
+                 c.created_at, c.updated_at, c.checkout_started_at,
+                 c.customer_details_submitted_at, c.whatsapp_clicked_at,
+                 c.converted_at, c.cleared_at)
+                for c in Cart.query.all()
+            ],
+            ["id", "cart_id", "session_id", "user_id", "status", "total_items",
+             "total_amount", "converted_order_code", "created_at", "updated_at",
+             "checkout_started_at", "customer_details_submitted_at",
+             "whatsapp_clicked_at", "converted_at", "cleared_at"],
+        )
+        dump(
+            "cart_items.csv",
+            [
+                (i.id, i.cart_id, i.product_id, i.product_name, i.product_sku,
+                 i.category, i.subcategory, i.quantity, i.unit_price,
+                 i.line_total, i.is_active, i.added_at, i.updated_at,
+                 i.removed_at)
+                for i in CartItem.query.all()
+            ],
+            ["id", "cart_id", "product_id", "product_name", "product_sku",
+             "category", "subcategory", "quantity", "unit_price", "line_total",
+             "is_active", "added_at", "updated_at", "removed_at"],
         )
         dump(
             "order_intents.csv",
             [
-                (o.id, o.order_code, o.customer_name, o.customer_phone,
+                (o.id, o.order_code, o.cart_id, o.session_id, o.customer_name,
+                 o.customer_phone,
                  o.customer_city, o.customer_notes, o.total_items,
                  o.total_amount, o.status, o.created_at)
                 for o in OrderIntent.query.all()
             ],
-            ["id", "order_code", "customer_name", "customer_phone",
+            ["id", "order_code", "cart_id", "session_id", "customer_name", "customer_phone",
              "customer_city", "customer_notes", "total_items", "total_amount",
              "status", "created_at"],
         )

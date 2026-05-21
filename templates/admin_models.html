@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}Admin Models - ShopPulse{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h3 class="mb-1">Admin Model Runs</h3>
+    <p class="text-muted small mb-0">Internal demo page for training runs and versioned model folders.</p>
+  </div>
+  <a href="{{ url_for('admin_categories') }}" class="btn btn-sm btn-outline-dark">Categories</a>
+</div>
+
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+
+<div class="bg-white border rounded-3 p-3 mb-3">
+  <h6>Training Runs</h6>
+  <table class="table table-sm table-sm-strict mb-0">
+    <thead><tr><th>Version</th><th>Status</th><th>Promoted</th><th>Started</th><th>Artifact</th></tr></thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td>{{ r.model_version }}</td>
+        <td>{{ r.status }}</td>
+        <td>{{ 'yes' if r.promoted_to_latest else 'no' }}</td>
+        <td class="small">{{ r.started_at }}</td>
+        <td class="small">{{ r.artifact_path or '' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-muted">No training runs recorded yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="bg-white border rounded-3 p-3">
+  <h6>Model Run Folders</h6>
+  <table class="table table-sm table-sm-strict mb-0">
+    <thead><tr><th>Folder</th><th>Path</th><th class="text-end">Action</th></tr></thead>
+    <tbody>
+      {% for path in run_dirs %}
+      <tr>
+        <td>{{ path.name }}</td>
+        <td class="small">{{ path }}</td>
+        <td class="text-end">
+          <form method="post" action="{{ url_for('admin_promote_model') }}">
+            <input type="hidden" name="model_version" value="{{ path.name }}">
+            <button class="btn btn-sm btn-outline-dark">Promote</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="text-muted">No model run folders yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

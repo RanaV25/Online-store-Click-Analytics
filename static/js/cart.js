@@ -2,7 +2,8 @@
  * ShopPulse - LocalStorage cart.
  *
  * Cart shape:
- *   { items: [ {product_id, sku, name, slug, price, quantity, image_url, category} ],
+ *   { cart_id: <uuid>,
+ *     items: [ {product_id, sku, name, slug, price, quantity, image_url, category} ],
  *     updated_at: <ISO string> }
  *
  * Every mutation also fires a cart-event back to the server (best-effort) so
@@ -13,22 +14,45 @@
 
   function nowIso() { return new Date().toISOString(); }
 
+  function uuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+
   function getCart() {
     try {
       const raw = localStorage.getItem(KEY);
-      if (!raw) return { items: [], updated_at: nowIso() };
+      if (!raw) return { cart_id: uuid(), items: [], updated_at: nowIso() };
       const parsed = JSON.parse(raw);
       if (!parsed.items) parsed.items = [];
+      if (!parsed.cart_id) parsed.cart_id = uuid();
       return parsed;
     } catch (e) {
-      return { items: [], updated_at: nowIso() };
+      return { cart_id: uuid(), items: [], updated_at: nowIso() };
     }
   }
 
   function saveCart(cart) {
+    if (!cart.cart_id) cart.cart_id = uuid();
     cart.updated_at = nowIso();
     localStorage.setItem(KEY, JSON.stringify(cart));
     updateCartBadge();
+  }
+
+  function rotateCart() {
+    const cart = { cart_id: uuid(), items: [], updated_at: nowIso() };
+    saveCart(cart);
+    return cart;
+  }
+
+  function getCartId() {
+    const cart = getCart();
+    saveCart(cart);
+    return cart.cart_id;
   }
 
   function findIndex(cart, productId) {
@@ -45,16 +69,21 @@
     return cart.items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
   }
 
-  function postCartEvent(eventType, item, qty) {
+  function postCartEvent(eventType, item, qty, options) {
+    options = options || {};
     if (!window.SPAnalytics) return;
+    const cart = options.cart || getCart();
     const payload = {
+      cart_id: cart.cart_id,
       session_id: SPAnalytics.getSessionId(),
+      user_id: SPAnalytics.getAnonymousUserId(),
       event_type: eventType,
       product_id: item ? item.product_id : null,
       product_name: item ? item.name : null,
       quantity: qty,
       unit_price: item ? item.price : null,
-      cart_total: getCartTotal()
+      cart_total: cart.items.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0),
+      metadata: options.metadata || null
     };
     try {
       navigator.sendBeacon
@@ -65,11 +94,13 @@
 
     // Mirror to click stream too so funnel queries are simple.
     SPAnalytics.trackEvent(eventType, {
+      cart_id: cart.cart_id,
       product_id: item ? item.product_id : null,
       product_sku: item ? item.sku : null,
       category: item ? item.category : null,
-      cart_value: getCartTotal(),
-      cart_items_count: getCartItemsCount()
+      cart_value: payload.cart_total,
+      cart_items_count: cart.items.reduce((s, it) => s + (Number(it.quantity) || 0), 0),
+      metadata: options.metadata || null
     });
   }
 
@@ -120,8 +151,18 @@
   function clearCart() {
     const cart = getCart();
     if (!cart.items.length) return;
-    saveCart({ items: [], updated_at: nowIso() });
-    postCartEvent('clear_cart', null, 0);
+    postCartEvent('clear_cart', null, 0, { cart });
+    rotateCart();
+    renderCart();
+  }
+
+  function completeCart(orderCode) {
+    const cart = getCart();
+    postCartEvent('cart_converted', null, 0, {
+      cart,
+      metadata: { order_code: orderCode }
+    });
+    rotateCart();
     renderCart();
   }
 
@@ -223,6 +264,7 @@
 
   window.SPCart = {
     getCart, saveCart, addToCart, removeFromCart, updateQuantity, clearCart,
+    completeCart, postCartEvent, getCartId, rotateCart,
     getCartTotal, getCartItemsCount, renderCart, updateCartBadge
   };
 

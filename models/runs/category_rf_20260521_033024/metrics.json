@@ -1,0 +1,46 @@
+[
+  {
+    "model": "baseline_mean",
+    "mae_cart_probability": 0.050100000000000006,
+    "mae_order_probability": 0.048949999999999994,
+    "avg_mae": 0.049525,
+    "rmse_cart_probability": 0.055112594976103234,
+    "rmse_order_probability": 0.05096255978657273,
+    "avg_rmse": 0.05303757738133798,
+    "r2_cart_probability": -0.0987857332131108,
+    "r2_order_probability": -11.916165207877452
+  },
+  {
+    "model": "random_forest",
+    "mae_cart_probability": 0.06801049999999956,
+    "mae_order_probability": 0.04937233333333363,
+    "avg_mae": 0.05869141666666659,
+    "rmse_cart_probability": 0.06937209514278772,
+    "rmse_order_probability": 0.05353858497019825,
+    "avg_rmse": 0.06145534005649299,
+    "r2_cart_probability": -0.7409284135624516,
+    "r2_order_probability": -13.254923814457607
+  },
+  {
+    "model": "ridge_regression",
+    "mae_cart_probability": 0.062457427290503464,
+    "mae_order_probability": 0.059244189622355926,
+    "avg_mae": 0.06085080845642969,
+    "rmse_cart_probability": 0.0653705708125277,
+    "rmse_order_probability": 0.0642866454869626,
+    "avg_rmse": 0.06482860814974514,
+    "r2_cart_probability": -0.5458802395001661,
+    "r2_order_probability": -19.552878396490975
+  },
+  {
+    "model": "gradient_boosting",
+    "mae_cart_probability": 0.08760904996186883,
+    "mae_order_probability": 0.07285599986401073,
+    "avg_mae": 0.08023252491293978,
+    "rmse_cart_probability": 0.0896356477268415,
+    "rmse_order_probability": 0.07736434872744498,
+    "avg_rmse": 0.08349999822714324,
+    "r2_cart_probability": -1.9065166395782058,
+    "r2_order_probability": -28.76547868520844
+  }
+]

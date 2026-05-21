@@ -82,6 +82,7 @@ class ClickEvent(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     event_id = db.Column(db.String(64), index=True)
+    cart_id = db.Column(db.String(64), index=True)
     session_id = db.Column(db.String(64), index=True)
     user_id = db.Column(db.String(64), index=True)
     event_type = db.Column(db.String(64), nullable=False, index=True)
@@ -108,14 +109,58 @@ class CartEvent(db.Model):
     __tablename__ = "cart_events"
 
     id = db.Column(db.Integer, primary_key=True)
+    cart_id = db.Column(db.String(64), index=True)
     session_id = db.Column(db.String(64), index=True)
+    user_id = db.Column(db.String(64), index=True)
     event_type = db.Column(db.String(40), nullable=False, index=True)
     product_id = db.Column(db.Integer, index=True)
     product_name = db.Column(db.String(200))
     quantity = db.Column(db.Integer)
     unit_price = db.Column(db.Float)
     cart_total = db.Column(db.Float)
+    metadata_json = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+
+class Cart(db.Model):
+    __tablename__ = "carts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cart_id = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    session_id = db.Column(db.String(64), index=True)
+    user_id = db.Column(db.String(64), index=True)
+    status = db.Column(db.String(40), default="active", index=True)
+    total_items = db.Column(db.Integer, default=0)
+    total_amount = db.Column(db.Float, default=0.0)
+    converted_order_code = db.Column(db.String(40), index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True
+    )
+    checkout_started_at = db.Column(db.DateTime)
+    customer_details_submitted_at = db.Column(db.DateTime)
+    whatsapp_clicked_at = db.Column(db.DateTime)
+    converted_at = db.Column(db.DateTime)
+    cleared_at = db.Column(db.DateTime)
+
+
+class CartItem(db.Model):
+    __tablename__ = "cart_items"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cart_id = db.Column(db.String(64), index=True, nullable=False)
+    product_id = db.Column(db.Integer, index=True, nullable=False)
+    product_name = db.Column(db.String(200))
+    product_sku = db.Column(db.String(64))
+    category = db.Column(db.String(80))
+    subcategory = db.Column(db.String(80))
+    quantity = db.Column(db.Integer, default=1)
+    unit_price = db.Column(db.Float, nullable=False)
+    line_total = db.Column(db.Float, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, index=True)
+    added_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    removed_at = db.Column(db.DateTime)
 
 
 class OrderIntent(db.Model):
@@ -123,6 +168,8 @@ class OrderIntent(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     order_code = db.Column(db.String(40), unique=True, nullable=False, index=True)
+    cart_id = db.Column(db.String(64), index=True)
+    session_id = db.Column(db.String(64), index=True)
     customer_name = db.Column(db.String(120), nullable=False)
     customer_phone = db.Column(db.String(40), nullable=False)
     customer_city = db.Column(db.String(80))
@@ -143,3 +190,65 @@ class SearchQuery(db.Model):
     query = db.Column(db.String(300), nullable=False)
     results_count = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+
+class RetrainingTrigger(db.Model):
+    __tablename__ = "retraining_triggers"
+
+    id = db.Column(db.Integer, primary_key=True)
+    trigger_type = db.Column(db.String(60), nullable=False, index=True)
+    category_id = db.Column(db.Integer, index=True)
+    category_name = db.Column(db.String(120), nullable=False, index=True)
+    reason = db.Column(db.String(300))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    active_until = db.Column(db.DateTime, nullable=False, index=True)
+    status = db.Column(db.String(40), default="active", index=True)
+    last_checked_at = db.Column(db.DateTime)
+    last_training_run_id = db.Column(db.Integer, index=True)
+
+
+class TrainingRun(db.Model):
+    __tablename__ = "training_runs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    model_version = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    model_type = db.Column(db.String(80), default="random_forest", index=True)
+    status = db.Column(db.String(40), default="started", index=True)
+    started_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    finished_at = db.Column(db.DateTime)
+    source_db_backup = db.Column(db.String(500))
+    metrics_json = db.Column(db.Text)
+    artifact_path = db.Column(db.String(500))
+    github_release_url = db.Column(db.String(500))
+    promoted_to_latest = db.Column(db.Boolean, default=False, index=True)
+    created_by = db.Column(db.String(120), default="system")
+    error_message = db.Column(db.Text)
+
+
+class ModelDeployment(db.Model):
+    __tablename__ = "model_deployments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    model_version = db.Column(db.String(120), nullable=False, index=True)
+    source_release_url = db.Column(db.String(500))
+    deployed_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    deployed_by = db.Column(db.String(120), default="system")
+    status = db.Column(db.String(40), default="deployed", index=True)
+    notes = db.Column(db.Text)
+
+
+class PredictionJob(db.Model):
+    __tablename__ = "prediction_jobs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    event_id = db.Column(db.String(64), index=True)
+    product_id = db.Column(db.Integer, index=True)
+    event_type = db.Column(db.String(64), default="product_view", index=True)
+    payload_json = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(40), default="queued", index=True)
+    attempts = db.Column(db.Integer, default=0)
+    error_message = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = db.Column(db.DateTime)
