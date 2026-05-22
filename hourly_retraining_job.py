@@ -1,6 +1,5 @@
 """Hourly retraining job driven by active retraining triggers."""
 import argparse
-import json
 import subprocess
 import sys
 from datetime import datetime
@@ -9,7 +8,6 @@ from pathlib import Path
 from app import app
 from backup_database import create_db_backup
 from config import Config
-from mlops_utils import copy_tree_contents
 from models import RetrainingTrigger, TrainingRun, db
 
 

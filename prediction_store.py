@@ -14,11 +14,12 @@ from pathlib import Path
 import joblib
 import numpy as np
 
-from feature_pipeline import BASE_DIR, build_category_dataframe, load_tables
+from config import Config
+from feature_pipeline import build_category_dataframe, load_tables
 from mlops_utils import current_model_path
 
 
-PREDICTION_DB_PATH = BASE_DIR / "data" / "prediction_analytics.db"
+PREDICTION_DB_PATH = Config.PREDICTION_DB_PATH
 MODEL_PATH = current_model_path()
 
 
